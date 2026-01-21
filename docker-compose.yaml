@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  # --- 1. БАЗА ДАННЫХ (PostGIS) ---
+  postgres:
+    # Используем PostGIS (как вы указали ранее, это критично для гео-данных)
+    image: postgis/postgis:15-3.4-alpine
+    container_name: atm_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: atm_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # --- 2. БЭКЕНД (Go) ---
+  backend:
+    container_name: atm_backend
+    build:
+      context: ./geocash-analytics  # Путь к папке Go
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      # Ваши настройки
+      - DB_HOST=postgres
+      - DB_USER=postgres
+      - DB_PASSWORD=secret
+      - DB_NAME=atm_db
+      - DB_PORT=5432
+      - CONFIG_PATH=/app/config/config.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Если нужно прокинуть CSV файл (чтобы не копировать в Dockerfile):
+    volumes:
+      - ./geocash-analytics/traffic_data.csv:/app/traffic_data.csv
+    networks:
+      - app_net
+
+  # --- 3. ФРОНТЕНД (Nuxt) ---
+  frontend:
+    container_name: atm_frontend
+    build:
+      context: ./Frontend_For_Thema # Путь к папке Nuxt
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "3001:3000"
+    environment:
+      - NUXT_HOST=0.0.0.0
+      - NUXT_PORT=3000
+      - NUXT_PUBLIC_API_BASE=http://localhost:8080
+    depends_on:
+      - backend
+    networks:
+      - app_net
+
+volumes:
+  postgres_data:
+
+networks:
+  app_net:
+    driver: bridge
